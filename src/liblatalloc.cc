@@ -109,9 +109,9 @@ MDEF1(size_t, malloc_usable_size, void *);
 
 // mutex protecting debug and __mesh_assert_fail to avoid concurrent
 // use of static buffers by multiple threads
-static inline std::mutex *getAssertMutex(void) {
-  static char assertBuf[sizeof(std::mutex)];
-  static std::mutex *assertMutex = new (assertBuf) std::mutex();
+static inline mutex *getAssertMutex(void) {
+  static char assertBuf[sizeof(mutex)];
+  static mutex *assertMutex = new (assertBuf) mutex();
 
   return assertMutex;
 }
@@ -122,7 +122,7 @@ static inline std::mutex *getAssertMutex(void) {
 static void _log(const char *fmt, ...) {
   constexpr size_t buf_len = 4096;
   static char buf[buf_len];
-  std::lock_guard<std::mutex> lock(*getAssertMutex());
+  lock_guard<mutex> lock(*getAssertMutex());
 
   va_list args;
 
