@@ -1,13 +1,14 @@
 // -*- mode: c++; c-basic-offset: 2; indent-tabs-mode: nil -*-
 // Copyright 2018 Bobby Powers
 
-#define _GNU_SOURCE
 #include <dlfcn.h>
-#undef _GNU_SOURCE
-
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
+
+#include <mutex>
 
 // if we are being called from inside libdl, don't attempt to recurse,
 // give libdl an allocation from a static buffer
@@ -103,6 +104,64 @@ MDEF1(size_t, malloc_usable_size, void *);
     }                                            \
   }
 
+// mutex protecting debug and __mesh_assert_fail to avoid concurrent
+// use of static buffers by multiple threads
+static inline std::mutex *getAssertMutex(void) {
+  static char assertBuf[sizeof(std::mutex)];
+  static std::mutex *assertMutex = new (assertBuf) std::mutex();
+
+  return assertMutex;
+}
+
+// threadsafe printf-like debug statements safe for use in an
+// allocator (it will never call into malloc or free to allocate
+// memory)
+static void _log(const char *fmt, ...) {
+  constexpr size_t buf_len = 4096;
+  static char buf[buf_len];
+  std::lock_guard<std::mutex> lock(*getAssertMutex());
+
+  va_list args;
+
+  va_start(args, fmt);
+  int len = vsnprintf(buf, buf_len - 1, fmt, args);
+  va_end(args);
+
+  buf[buf_len - 1] = 0;
+  if (len > 0) {
+    (void)write(STDERR_FILENO, buf, len);
+    // ensure a trailing newline is written out
+    if (buf[len - 1] != '\n')
+      (void)write(STDERR_FILENO, "\n", 1);
+  }
+}
+
+class time_call {
+private:
+  const char *_type;
+  struct timespec _start;
+
+public:
+  inline explicit time_call(const char *type) : _type(type) {
+    if (unlikely(clock_gettime(CLOCK_MONOTONIC_RAW, &_start) != 0)) {
+      (void)write(2, "gettime failed\n", strlen("gettime failed\n"));
+      _exit(1);
+    }
+  }
+  inline ~time_call() {
+    struct timespec end;
+    if (unlikely(clock_gettime(CLOCK_MONOTONIC_RAW, &end) != 0)) {
+      (void)write(2, "gettime failed 2\n", strlen("gettime failed 2\n"));
+      _exit(1);
+    }
+
+    uint64_t secs = end.tv_sec - _start.tv_sec;
+    uint64_t nsec = end.tv_nsec - _start.tv_nsec;
+
+    _log("%s\t%d.%09d\n", _type, secs, nsec);
+  }
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -110,6 +169,7 @@ extern "C" {
 void *malloc(size_t sz) {
   ensure_loaded_alloc(malloc, sz);
 
+  time_call("malloc");
   return _malloc(sz);
 }
 
@@ -118,6 +178,7 @@ void free(void *ptr) {
   if (unlikely(is_internal_alloc(ptr)))
     return;
 
+  time_call("free");
   _free(ptr);
 }
 
@@ -126,12 +187,14 @@ void cfree(void *ptr) {
   if (unlikely(is_internal_alloc(ptr)))
     return;
 
+  time_call("cfree");
   _cfree(ptr);
 }
 
 void *calloc(size_t n, size_t sz) {
   ensure_loaded_alloc(calloc, n * sz);
 
+  time_call("calloc");
   return _calloc(n, sz);
 }
 
@@ -140,30 +203,35 @@ void *realloc(void *ptr, size_t sz) {
   if (unlikely(is_internal_alloc(ptr)))
     return NULL;
 
+  time_call("realloc");
   return _realloc(ptr, sz);
 }
 
 void *memalign(size_t alignment, size_t sz) {
   ensure_loaded(memalign);
 
+  time_call("memalign");
   return _memalign(alignment, sz);
 }
 
 int posix_memalign(void **ptr, size_t alignment, size_t sz) {
   ensure_loaded(posix_memalign);
 
+  time_call("posix_memalign");
   return _posix_memalign(ptr, alignment, sz);
 }
 
 void *aligned_alloc(size_t alignment, size_t sz) {
   ensure_loaded(aligned_alloc);
 
+  time_call("aligned_alloc");
   return _aligned_alloc(alignment, sz);
 }
 
 size_t malloc_usable_size(void *ptr) {
   ensure_loaded(malloc_usable_size);
 
+  time_call("malloc_usable_size");
   return _malloc_usable_size(ptr);
 }
 #ifdef __cplusplus
