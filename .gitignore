@@ -1,0 +1,5 @@
+*~
+*.pyc
+config.mk
+/build
+liblatalloc.so
