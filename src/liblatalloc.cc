@@ -8,7 +8,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <mutex>
+
+using namespace std;
 
 // if we are being called from inside libdl, don't attempt to recurse,
 // give libdl an allocation from a static buffer
@@ -139,26 +142,16 @@ static void _log(const char *fmt, ...) {
 class time_call {
 private:
   const char *_type;
-  struct timespec _start;
+  chrono::high_resolution_clock::time_point _start;
 
 public:
-  inline explicit time_call(const char *type) : _type(type) {
-    if (unlikely(clock_gettime(CLOCK_MONOTONIC_RAW, &_start) != 0)) {
-      (void)write(2, "gettime failed\n", strlen("gettime failed\n"));
-      _exit(1);
-    }
+  explicit time_call(const char *type) : _type(type), _start(chrono::high_resolution_clock::now()) {
   }
-  inline ~time_call() {
-    struct timespec end;
-    if (unlikely(clock_gettime(CLOCK_MONOTONIC_RAW, &end) != 0)) {
-      (void)write(2, "gettime failed 2\n", strlen("gettime failed 2\n"));
-      _exit(1);
-    }
+  ~time_call() {
+    const auto end = chrono::high_resolution_clock::now();
+    auto nanos = chrono::duration_cast<chrono::nanoseconds>(end - _start).count();
 
-    uint64_t secs = end.tv_sec - _start.tv_sec;
-    uint64_t nsec = end.tv_nsec - _start.tv_nsec;
-
-    _log("%s\t%d.%09d\n", _type, secs, nsec);
+    _log("%s\t%9d\n", _type, nanos);
   }
 };
 
@@ -169,7 +162,7 @@ extern "C" {
 void *malloc(size_t sz) {
   ensure_loaded_alloc(malloc, sz);
 
-  time_call("malloc");
+  time_call timer("malloc");
   return _malloc(sz);
 }
 
@@ -178,7 +171,7 @@ void free(void *ptr) {
   if (unlikely(is_internal_alloc(ptr)))
     return;
 
-  time_call("free");
+  time_call timer("free");
   _free(ptr);
 }
 
@@ -187,14 +180,14 @@ void cfree(void *ptr) {
   if (unlikely(is_internal_alloc(ptr)))
     return;
 
-  time_call("cfree");
+  time_call timer("cfree");
   _cfree(ptr);
 }
 
 void *calloc(size_t n, size_t sz) {
   ensure_loaded_alloc(calloc, n * sz);
 
-  time_call("calloc");
+  time_call timer("calloc");
   return _calloc(n, sz);
 }
 
@@ -203,35 +196,35 @@ void *realloc(void *ptr, size_t sz) {
   if (unlikely(is_internal_alloc(ptr)))
     return NULL;
 
-  time_call("realloc");
+  time_call timer("realloc");
   return _realloc(ptr, sz);
 }
 
 void *memalign(size_t alignment, size_t sz) {
   ensure_loaded(memalign);
 
-  time_call("memalign");
+  time_call timer("memalign");
   return _memalign(alignment, sz);
 }
 
 int posix_memalign(void **ptr, size_t alignment, size_t sz) {
   ensure_loaded(posix_memalign);
 
-  time_call("posix_memalign");
+  time_call timer("posix_memalign");
   return _posix_memalign(ptr, alignment, sz);
 }
 
 void *aligned_alloc(size_t alignment, size_t sz) {
   ensure_loaded(aligned_alloc);
 
-  time_call("aligned_alloc");
+  time_call timer("aligned_alloc");
   return _aligned_alloc(alignment, sz);
 }
 
 size_t malloc_usable_size(void *ptr) {
   ensure_loaded(malloc_usable_size);
 
-  time_call("malloc_usable_size");
+  time_call timer("malloc_usable_size");
   return _malloc_usable_size(ptr);
 }
 #ifdef __cplusplus
