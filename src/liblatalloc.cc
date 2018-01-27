@@ -19,6 +19,7 @@ using namespace std;
 static char _DL_BUF[_DL_BUF_LEN];
 static size_t _DL_BUF_OFF = 0;
 int _IN_DLSYM_COUNT = 0;
+static bool _LATALLOC_INITIALIZED;
 
 static inline void *internal_alloc(size_t sz) {
   if (_DL_BUF_OFF + sz > _DL_BUF_LEN) {
@@ -90,6 +91,7 @@ MDEF1(size_t, malloc_usable_size, void *);
 #define ensure_loaded(sym)                       \
   {                                              \
     if (unlikely(_##sym == NULL)) {              \
+      _init();                                   \
       dlsym_push();                              \
       _##sym = (sym##_fn)dlsym(RTLD_NEXT, #sym); \
       dlsym_pop();                               \
@@ -99,6 +101,7 @@ MDEF1(size_t, malloc_usable_size, void *);
 #define ensure_loaded_alloc(sym, sz)             \
   {                                              \
     if (unlikely(_##sym == NULL)) {              \
+      _init();                                   \
       if (is_in_dlsym())                         \
         return internal_alloc(sz);               \
       dlsym_push();                              \
@@ -137,6 +140,15 @@ static void _log(const char *fmt, ...) {
     if (buf[len - 1] != '\n')
       (void)write(STDERR_FILENO, "\n", 1);
   }
+}
+
+static inline void _init() {
+  if (likely(_LATALLOC_INITIALIZED))
+    return;
+
+  _log("func\ttime\n");
+
+  _LATALLOC_INITIALIZED = true;
 }
 
 class time_call {
