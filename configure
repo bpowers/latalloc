@@ -24,7 +24,7 @@ if c.optimize_build:
     c.append('cflags', '-DNDEBUG')
     c.append('cflags', '-O3 -flto')
     c.append('ldflags', '-O3 -flto')
-    c.append('cflags', '-pthread -D_FORTIFY_SOURCE=2')
+    c.append('cflags', '-D_FORTIFY_SOURCE=2')
 else:
     c.append('cflags', '-O0')
 
@@ -70,7 +70,8 @@ c.append('ldflags', '-Wl,-Bsymbolic-functions')
 c.append('ldflags', '-Wl,-z,now,-z,relro')
 c.append('ldflags', '-ftls-model=initial-exec')
 
-c.append('libs', '-lm -lpthread')
+c.append('libs', '-lm')
+c.append('libs', '-lpthread')
 c.append('libs', '-ldl')
 
 c.append('cxxflags', '-std=gnu++14 -I . -I src')

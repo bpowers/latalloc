@@ -15,7 +15,7 @@ PREFIX = /usr
 ARCH             = x86_64
 
 LIB_SRCS         = src/liblatalloc.c
-LIB_OBJS         = $(addprefix build/,$(LIB_SRCS:.cc=.o))
+LIB_OBJS         = $(addprefix build/,$(LIB_SRCS:.c=.o))
 LIB              = lib$(LIBNAME).so
 
 ALL_OBJS         = $(LIB_OBJS)
@@ -49,7 +49,7 @@ build/%.o: %.cc build $(CONFIG)
 
 $(LIB): $(LIB_OBJS) $(CONFIG)
 	@echo "  LD    $@"
-	$(CXX) -shared $(LDFLAGS) -o $@ $(LIB_OBJS) $(LIBS)
+	$(CC) -shared $(LDFLAGS) -o $@ $(LIB_OBJS) $(LIBS)
 
 install: $(LIB)
 	install -c -m 0755 $(LIB) $(PREFIX)/lib/$(LIB)

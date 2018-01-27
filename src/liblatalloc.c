@@ -1,10 +1,50 @@
 // -*- mode: c++; c-basic-offset: 2; indent-tabs-mode: nil -*-
 // Copyright 2018 Bobby Powers
 
+#define _GNU_SOURCE
 #include <dlfcn.h>
+#undef _GNU_SOURCE
+
 #include <stddef.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
+
+// if we are being called from inside libdl, don't attempt to recurse,
+// give libdl an allocation from a static buffer
+#define _DL_BUF_LEN 1048576
+static char _DL_BUF[_DL_BUF_LEN];
+static size_t _DL_BUF_OFF = 0;
+int _IN_DLSYM_COUNT = 0;
+
+static inline void *internal_alloc(size_t sz) {
+  if (_DL_BUF_OFF + sz > _DL_BUF_LEN) {
+    (void)write(2, "internal_alloc exhausted\n", strlen("internal_alloc exhausted\n"));
+    _exit(1);
+  }
+
+  // bump pointer
+  size_t off = _DL_BUF_OFF;
+  _DL_BUF_OFF += sz;
+
+  return (void *)&_DL_BUF[off];
+}
+
+static inline int is_internal_alloc(void *ptr) {
+  char *cptr = (char *)ptr;
+  return cptr >= _DL_BUF && cptr < (_DL_BUF + _DL_BUF_LEN);
+}
+
+static inline int is_in_dlsym() {
+  return _IN_DLSYM_COUNT > 0;
+}
+
+static inline void dlsym_push() {
+  _IN_DLSYM_COUNT++;
+}
+
+static inline void dlsym_pop() {
+  _IN_DLSYM_COUNT--;
+}
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -21,13 +61,13 @@
 // creates e.g. "malloc_fn" typedef and _malloc static var
 #define MDEF1(type, fname, arg1)    \
   typedef type (*fname##_fn)(arg1); \
-  static fname##_fn _##fname;
+  static fname##_fn _##fname
 #define MDEF2(type, fname, arg1, arg2)    \
   typedef type (*fname##_fn)(arg1, arg2); \
-  static fname##_fn _##fname;
+  static fname##_fn _##fname
 #define MDEF3(type, fname, arg1, arg2, arg3)    \
   typedef type (*fname##_fn)(arg1, arg2, arg3); \
-  static fname##_fn _##fname;
+  static fname##_fn _##fname
 
 MDEF1(void *, malloc, size_t);
 MDEF1(void, free, void *);
@@ -43,42 +83,62 @@ MDEF1(size_t, malloc_usable_size, void *);
 #undef MDEF2
 #undef MDEF3
 
-#define ensure_loaded(sym)                                         \
-  {                                                                \
-    if (unlikely(_##sym == nullptr)) {                             \
-      _##sym = reinterpret_cast<sym##_fn>(dlsym(RTLD_NEXT, #sym)); \
-      write(2, #sym "\n", strlen(#sym "\n"));                      \
-    }                                                              \
+#define ensure_loaded(sym)                       \
+  {                                              \
+    if (unlikely(_##sym == NULL)) {              \
+      dlsym_push();                              \
+      _##sym = (sym##_fn)dlsym(RTLD_NEXT, #sym); \
+      dlsym_pop();                               \
+    }                                            \
   }
 
+#define ensure_loaded_alloc(sym, sz)             \
+  {                                              \
+    if (unlikely(_##sym == NULL)) {              \
+      if (is_in_dlsym())                         \
+        return internal_alloc(sz);               \
+      dlsym_push();                              \
+      _##sym = (sym##_fn)dlsym(RTLD_NEXT, #sym); \
+      dlsym_pop();                               \
+    }                                            \
+  }
+
+#ifdef __cplusplus
 extern "C" {
+#endif
 
 void *malloc(size_t sz) {
-  ensure_loaded(malloc);
+  ensure_loaded_alloc(malloc, sz);
 
   return _malloc(sz);
 }
 
 void free(void *ptr) {
   ensure_loaded(free);
+  if (unlikely(is_internal_alloc(ptr)))
+    return;
 
   _free(ptr);
 }
 
 void cfree(void *ptr) {
   ensure_loaded(cfree);
+  if (unlikely(is_internal_alloc(ptr)))
+    return;
 
   _cfree(ptr);
 }
 
 void *calloc(size_t n, size_t sz) {
-  ensure_loaded(calloc);
+  ensure_loaded_alloc(calloc, n * sz);
 
   return _calloc(n, sz);
 }
 
 void *realloc(void *ptr, size_t sz) {
   ensure_loaded(realloc);
+  if (unlikely(is_internal_alloc(ptr)))
+    return NULL;
 
   return _realloc(ptr, sz);
 }
@@ -106,4 +166,6 @@ size_t malloc_usable_size(void *ptr) {
 
   return _malloc_usable_size(ptr);
 }
+#ifdef __cplusplus
 }  // extern "C"
+#endif
