@@ -14,7 +14,7 @@ PREFIX = /usr
 
 ARCH             = x86_64
 
-LIB_SRCS         = src/main.cc
+LIB_SRCS         = src/liblatalloc.c
 LIB_OBJS         = $(addprefix build/,$(LIB_SRCS:.cc=.o))
 LIB              = lib$(LIBNAME).so
 
@@ -39,8 +39,11 @@ build:
 	mkdir -p $(basename $(ALL_OBJS))
 	touch -c build
 
+build/src/%.o: src/%.c build $(CONFIG)
+	@echo "  CC    $@"
+	$(CC) $(CFLAGS) -MMD -o $@ -c $<
 
-build/%.o: %.cpp build $(CONFIG)
+build/%.o: %.cc build $(CONFIG)
 	@echo "  CXX   $@"
 	$(CXX) $(CXXFLAGS) -MMD -o $@ -c $<
 
