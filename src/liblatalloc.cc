@@ -146,7 +146,7 @@ static inline void _init() {
   if (likely(_LATALLOC_INITIALIZED))
     return;
 
-  _log("func\ttime\n");
+  _log("time\tfunc\tsize\n");
 
   _LATALLOC_INITIALIZED = true;
 }
@@ -154,16 +154,17 @@ static inline void _init() {
 class time_call {
 private:
   const char *_type;
+  const size_t _size;
   chrono::high_resolution_clock::time_point _start;
 
 public:
-  explicit time_call(const char *type) : _type(type), _start(chrono::high_resolution_clock::now()) {
+  explicit time_call(const char *type, size_t size = 0) : _type(type), _size(size), _start(chrono::high_resolution_clock::now()) {
   }
   ~time_call() {
     const auto end = chrono::high_resolution_clock::now();
     auto nanos = chrono::duration_cast<chrono::nanoseconds>(end - _start).count();
 
-    _log("%s\t%9d\n", _type, nanos);
+    _log("%9d\t%s\t%9d\n", nanos, _type, _size);
   }
 };
 
@@ -174,7 +175,7 @@ extern "C" {
 void *malloc(size_t sz) {
   ensure_loaded_alloc(malloc, sz);
 
-  time_call timer("malloc");
+  time_call timer("malloc", sz);
   return _malloc(sz);
 }
 
@@ -183,7 +184,9 @@ void free(void *ptr) {
   if (unlikely(is_internal_alloc(ptr)))
     return;
 
-  time_call timer("free");
+  ensure_loaded(malloc_usable_size);
+
+  time_call timer("free", _malloc_usable_size(ptr));
   _free(ptr);
 }
 
@@ -192,14 +195,14 @@ void cfree(void *ptr) {
   if (unlikely(is_internal_alloc(ptr)))
     return;
 
-  time_call timer("cfree");
+  time_call timer("cfree", 0);
   _cfree(ptr);
 }
 
 void *calloc(size_t n, size_t sz) {
   ensure_loaded_alloc(calloc, n * sz);
 
-  time_call timer("calloc");
+  time_call timer("calloc", sz);
   return _calloc(n, sz);
 }
 
@@ -208,7 +211,7 @@ void *realloc(void *ptr, size_t sz) {
   if (unlikely(is_internal_alloc(ptr)))
     return NULL;
 
-  time_call timer("realloc");
+  time_call timer("realloc", sz);
   return _realloc(ptr, sz);
 }
 
