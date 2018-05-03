@@ -1,0 +1,3 @@
+[submodule "src/vendor/HdrHistogram"]
+	path = src/vendor/HdrHistogram
+	url = https://github.com/HdrHistogram/HdrHistogram_c
