@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -179,10 +180,6 @@ static void _log(const char *fmt, ...) {
   }
 }
 
-static __attribute__((destructor)) void liblatalloc_fini() {
-  _log("TODO: dump histogram");
-}
-
 static constexpr int32_t buckets_needed_to_cover_value(int64_t value, int32_t sub_bucket_count,
                                                        int32_t unit_magnitude) {
   int64_t smallest_untrackable_value = ((int64_t)sub_bucket_count) << unit_magnitude;
@@ -256,14 +253,17 @@ static char *aligned_alloc_histogram_buf[histogramSize(minNanosecs, maxNanosecs,
 static char *malloc_usable_size_histogram_buf[histogramSize(minNanosecs, maxNanosecs, sigFigs)];
 
 static struct hdr_histogram *malloc_histogram = reinterpret_cast<struct hdr_histogram *>(&malloc_histogram_buf);
-static struct hdr_histogram *free_histogram = reinterpret_cast<struct hdr_histogram *>(&free_histogram_buf);;
-static struct hdr_histogram *cfree_histogram = reinterpret_cast<struct hdr_histogram *>(&cfree_histogram_buf);;
-static struct hdr_histogram *calloc_histogram = reinterpret_cast<struct hdr_histogram *>(&calloc_histogram_buf);;
-static struct hdr_histogram *realloc_histogram = reinterpret_cast<struct hdr_histogram *>(&realloc_histogram_buf);;
-static struct hdr_histogram *memalign_histogram = reinterpret_cast<struct hdr_histogram *>(&memalign_histogram_buf);;
-static struct hdr_histogram *posix_memalign_histogram = reinterpret_cast<struct hdr_histogram *>(&posix_memalign_histogram_buf);;
-static struct hdr_histogram *aligned_alloc_histogram = reinterpret_cast<struct hdr_histogram *>(&aligned_alloc_histogram_buf);;
-static struct hdr_histogram *malloc_usable_size_histogram = reinterpret_cast<struct hdr_histogram *>(&malloc_usable_size_histogram_buf);;
+static struct hdr_histogram *free_histogram = reinterpret_cast<struct hdr_histogram *>(&free_histogram_buf);
+static struct hdr_histogram *cfree_histogram = reinterpret_cast<struct hdr_histogram *>(&cfree_histogram_buf);
+static struct hdr_histogram *calloc_histogram = reinterpret_cast<struct hdr_histogram *>(&calloc_histogram_buf);
+static struct hdr_histogram *realloc_histogram = reinterpret_cast<struct hdr_histogram *>(&realloc_histogram_buf);
+static struct hdr_histogram *memalign_histogram = reinterpret_cast<struct hdr_histogram *>(&memalign_histogram_buf);
+static struct hdr_histogram *posix_memalign_histogram =
+    reinterpret_cast<struct hdr_histogram *>(&posix_memalign_histogram_buf);
+static struct hdr_histogram *aligned_alloc_histogram =
+    reinterpret_cast<struct hdr_histogram *>(&aligned_alloc_histogram_buf);
+static struct hdr_histogram *malloc_usable_size_histogram =
+    reinterpret_cast<struct hdr_histogram *>(&malloc_usable_size_histogram_buf);
 
 static inline void _init() {
   if (likely(_LATALLOC_INITIALIZED))
@@ -385,4 +385,20 @@ size_t malloc_usable_size(void *ptr) {
 }
 #ifdef __cplusplus
 }  // extern "C"
+
+static __attribute__((destructor)) void liblatalloc_fini() {
+  _log("malloc:\n");
+  hdr_percentiles_print(malloc_histogram,
+                        stderr,  // File to write to
+                        10,      // Granularity of printed values
+                        1.0,     // Multiplier for results
+                        CSV);    // Format CLASSIC/CSV supported.
+  _log("free:\n");
+  hdr_percentiles_print(free_histogram,
+                        stderr,  // File to write to
+                        10,      // Granularity of printed values
+                        1.0,     // Multiplier for results
+                        CSV);    // Format CLASSIC/CSV supported.
+}
+
 #endif
