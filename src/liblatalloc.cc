@@ -57,8 +57,9 @@ static inline void dlsym_pop() {
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
+#define LATALLOC_EXPORT __attribute__((visibility("default")))
+
 #define ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
-#define ATTRIBUTE_HIDDEN __attribute__((visibility("hidden")))
 #define ATTRIBUTE_ALIGNED(s) __attribute__((aligned(s)))
 #define CACHELINE 64
 
@@ -315,6 +316,7 @@ public:
 extern "C" {
 #endif
 
+LATALLOC_EXPORT
 void *malloc(size_t sz) {
   ensure_loaded_alloc(malloc, sz);
 
@@ -322,6 +324,7 @@ void *malloc(size_t sz) {
   return _malloc(sz);
 }
 
+LATALLOC_EXPORT
 void free(void *ptr) {
   ensure_loaded(free);
   if (unlikely(is_internal_alloc(ptr)))
@@ -331,6 +334,7 @@ void free(void *ptr) {
   _free(ptr);
 }
 
+LATALLOC_EXPORT
 void cfree(void *ptr) {
   ensure_loaded(cfree);
   if (unlikely(is_internal_alloc(ptr)))
@@ -340,6 +344,7 @@ void cfree(void *ptr) {
   _cfree(ptr);
 }
 
+LATALLOC_EXPORT
 void *calloc(size_t n, size_t sz) {
   ensure_loaded_alloc(calloc, n * sz);
 
@@ -347,6 +352,7 @@ void *calloc(size_t n, size_t sz) {
   return _calloc(n, sz);
 }
 
+LATALLOC_EXPORT
 void *realloc(void *ptr, size_t sz) {
   ensure_loaded(realloc);
   if (unlikely(is_internal_alloc(ptr)))
@@ -356,6 +362,7 @@ void *realloc(void *ptr, size_t sz) {
   return _realloc(ptr, sz);
 }
 
+LATALLOC_EXPORT
 void *memalign(size_t alignment, size_t sz) {
   ensure_loaded(memalign);
 
@@ -363,6 +370,7 @@ void *memalign(size_t alignment, size_t sz) {
   return _memalign(alignment, sz);
 }
 
+LATALLOC_EXPORT
 int posix_memalign(void **ptr, size_t alignment, size_t sz) {
   ensure_loaded(posix_memalign);
 
@@ -370,6 +378,7 @@ int posix_memalign(void **ptr, size_t alignment, size_t sz) {
   return _posix_memalign(ptr, alignment, sz);
 }
 
+LATALLOC_EXPORT
 void *aligned_alloc(size_t alignment, size_t sz) {
   ensure_loaded(aligned_alloc);
 
@@ -377,6 +386,7 @@ void *aligned_alloc(size_t alignment, size_t sz) {
   return _aligned_alloc(alignment, sz);
 }
 
+LATALLOC_EXPORT
 size_t malloc_usable_size(void *ptr) {
   ensure_loaded(malloc_usable_size);
 

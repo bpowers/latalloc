@@ -62,6 +62,9 @@ c.append('cflags', '-Wcast-align')
 
 c.append('cflags', '-Isrc/vendor/HdrHistogram/src')
 
+c.append('cflags', '-fvisibility=hidden')
+c.append('ldflags', '-fvisibility=hidden')
+
 c.append('ldflags', '-Wl,--no-add-needed')
 c.append('ldflags', '-Wl,--sort-common')
 c.append('ldflags', '-Wl,--gc-sections')

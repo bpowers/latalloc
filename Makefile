@@ -57,12 +57,12 @@ $(ALL_SUBMODULES):
 $(HDR_BUILD): $(HDR_HISTOGRAM) $(CONFIG)
 	@echo "  CMAKE $@"
 	mkdir -p $(HDR_BUILD_DIR)
-	cd $(HDR_BUILD_DIR) && CC=$(CC) CXX=$(CXX) cmake $(realpath $(dir $(HDR_HISTOGRAM)))
+	cd $(HDR_BUILD_DIR) && CC=$(CC) CXX=$(CXX) cmake -DCMAKE_BUILD_TYPE=Release $(realpath $(dir $(HDR_HISTOGRAM)))
 	touch -c $(HDR_BUILD)
 
 $(HDR_LIB): $(HDR_BUILD) $(CONFIG)
 	@echo "  LD    $@"
-	cd $(HDR_BUILD_DIR) && $(MAKE)
+	cd $(HDR_BUILD_DIR) && $(MAKE) || true
 	touch -c $@
 
 build/src/%.o: src/%.c build $(CONFIG)
