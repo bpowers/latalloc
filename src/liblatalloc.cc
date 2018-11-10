@@ -59,6 +59,7 @@ static inline void dlsym_pop() {
 
 #define LATALLOC_EXPORT __attribute__((visibility("default")))
 
+#define ATTRIBUTE_NEVER_INLINE __attribute__((noinline))
 #define ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
 #define ATTRIBUTE_ALIGNED(s) __attribute__((aligned(s)))
 #define CACHELINE 64
@@ -130,7 +131,9 @@ static inline mutex *getAssertMutex(void) {
 namespace internal {
 // out-of-line function called to report an error and exit the program
 // when an assertion failed.
-void __latalloc_assert_fail(const char *assertion, const char *file, const char *func, int line, const char *fmt, ...) {
+ATTRIBUTE_NEVER_INLINE
+static void __latalloc_assert_fail(const char *assertion, const char *file, const char *func, int line, const char *fmt,
+                                   ...) {
   constexpr size_t buf_len = 4096;
   constexpr size_t usr_len = 512;
   static char buf[buf_len];
@@ -161,6 +164,7 @@ void __latalloc_assert_fail(const char *assertion, const char *file, const char 
 // threadsafe printf-like debug statements safe for use in an
 // allocator (it will never call into malloc or free to allocate
 // memory)
+ATTRIBUTE_NEVER_INLINE
 static void _log(const char *fmt, ...) {
   constexpr size_t buf_len = 4096;
   static char buf[buf_len];
@@ -169,7 +173,7 @@ static void _log(const char *fmt, ...) {
   va_list args;
 
   va_start(args, fmt);
-  int len = vsnprintf(buf, buf_len - 1, fmt, args);
+  const int len = vsnprintf(buf, buf_len - 1, fmt, args);
   va_end(args);
 
   buf[buf_len - 1] = 0;
@@ -178,6 +182,34 @@ static void _log(const char *fmt, ...) {
     // ensure a trailing newline is written out
     if (buf[len - 1] != '\n')
       (void)write(STDERR_FILENO, "\n", 1);
+  }
+}
+
+static FILE *_open(const char *prefix, const char *type) {
+  constexpr size_t path_len = 4096;
+  char path[path_len];
+
+  memset(path, 0, path_len);
+
+  const int len = snprintf(path, path_len - 1, "%s.%s.csv", prefix, type);
+
+  path[path_len - 1] = 0;
+  if (len <= 0) {
+    return nullptr;
+  }
+
+  return fopen(path, "w");
+}
+
+static void write_histogram(const char *prefix, const char *type, struct hdr_histogram *histogram) {
+  auto file = _open(prefix, type);
+  if (file != nullptr) {
+    hdr_percentiles_print(histogram,
+                          file,  // File to write to
+                          10,    // Granularity of printed values
+                          1.0,   // Multiplier for results
+                          CSV);  // Format CLASSIC/CSV supported.
+    fclose(file);
   }
 }
 
@@ -397,18 +429,22 @@ size_t malloc_usable_size(void *ptr) {
 }  // extern "C"
 
 static __attribute__((destructor)) void liblatalloc_fini() {
-  _log("malloc:\n");
-  hdr_percentiles_print(malloc_histogram,
-                        stderr,  // File to write to
-                        10,      // Granularity of printed values
-                        1.0,     // Multiplier for results
-                        CSV);    // Format CLASSIC/CSV supported.
-  _log("free:\n");
-  hdr_percentiles_print(free_histogram,
-                        stderr,  // File to write to
-                        10,      // Granularity of printed values
-                        1.0,     // Multiplier for results
-                        CSV);    // Format CLASSIC/CSV supported.
+  const auto prefix = getenv("LATALLOC_PREFIX");
+  if (prefix == nullptr) {
+    _log("warning: LATALLOC_PREFIX not set in environment, nowhere to report to.\n");
+    return;
+  }
+  if (strlen(prefix) == 0) {
+    _log("warning: LATALLOC_PREFIX set to empty string, nowhere to report to.\n");
+    return;
+  }
+  if (prefix[0] != '/') {
+    _log("warning: LATALLOC_PREFIX not an absolute path, ignoring, nowhere to report to.\n");
+    return;
+  }
+
+  write_histogram(prefix, "malloc", malloc_histogram);
+  write_histogram(prefix, "free", free_histogram);
 }
 
 #endif
