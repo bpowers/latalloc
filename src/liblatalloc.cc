@@ -194,7 +194,7 @@ static FILE *_open(const char *prefix, const char *type) {
 
   memset(path, 0, path_len);
 
-  const int len = snprintf(path, path_len - 1, "%s.%s.%d.csv", prefix, type, getpid());
+  const int len = snprintf(path, path_len - 1, "%s.%s.csv", prefix, type);
 
   path[path_len - 1] = 0;
   if (len <= 0) {
@@ -274,9 +274,9 @@ static constexpr size_t histogramSize(int64_t lowest_trackable_value, int64_t hi
   return sizeof(struct hdr_histogram) + counts_len * sizeof(int64_t);
 }
 
-constexpr int64_t minNanosecs = 5;
-constexpr int64_t maxNanosecs = 50000000;  // 50 ms
-constexpr int sigFigs = 3;
+constexpr int64_t minNanosecs = 1;
+constexpr int64_t maxNanosecs = 100;  // 50 ms
+constexpr int sigFigs = 5;
 
 static char *malloc_histogram_buf[histogramSize(minNanosecs, maxNanosecs, sigFigs)];
 static char *free_histogram_buf[histogramSize(minNanosecs, maxNanosecs, sigFigs)];
