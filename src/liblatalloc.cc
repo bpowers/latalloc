@@ -16,6 +16,21 @@
 
 using namespace std;
 
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+#define LATALLOC_EXPORT __attribute__((visibility("default")))
+
+#define ATTRIBUTE_NEVER_INLINE __attribute__((noinline))
+#define ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
+#define ATTRIBUTE_ALIGNED(s) __attribute__((aligned(s)))
+#define CACHELINE 64
+#define CACHELINE_ALIGNED ATTRIBUTE_ALIGNED(CACHELINE)
+
+#define DISALLOW_COPY_AND_ASSIGN(TypeName) \
+  TypeName(const TypeName &);              \
+  void operator=(const TypeName &)
+
 // if we are being called from inside libdl, don't attempt to recurse,
 // give libdl an allocation from a static buffer
 constexpr size_t _DL_BUF_LEN = 1048576;
@@ -24,7 +39,8 @@ static size_t _DL_BUF_OFF = 0;
 int _IN_DLSYM_COUNT = 0;
 static bool _LATALLOC_INITIALIZED;
 
-static inline void *internal_alloc(size_t sz) {
+ATTRIBUTE_NEVER_INLINE
+static void *internal_alloc(size_t sz) {
   if (_DL_BUF_OFF + sz > _DL_BUF_LEN) {
     (void)write(2, "internal_alloc exhausted\n", strlen("internal_alloc exhausted\n"));
     _exit(1);
@@ -54,20 +70,6 @@ static inline void dlsym_pop() {
   _IN_DLSYM_COUNT--;
 }
 
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-
-#define LATALLOC_EXPORT __attribute__((visibility("default")))
-
-#define ATTRIBUTE_NEVER_INLINE __attribute__((noinline))
-#define ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
-#define ATTRIBUTE_ALIGNED(s) __attribute__((aligned(s)))
-#define CACHELINE 64
-
-#define DISALLOW_COPY_AND_ASSIGN(TypeName) \
-  TypeName(const TypeName &);              \
-  void operator=(const TypeName &)
-
 // creates e.g. "malloc_fn" typedef and _malloc static var
 #define MDEF1(type, fname, arg1)    \
   typedef type (*fname##_fn)(arg1); \
@@ -93,26 +95,27 @@ MDEF1(size_t, malloc_usable_size, void *);
 #undef MDEF2
 #undef MDEF3
 
-#define ensure_loaded(sym)                       \
-  {                                              \
-    if (unlikely(_##sym == NULL)) {              \
-      _init();                                   \
-      dlsym_push();                              \
-      _##sym = (sym##_fn)dlsym(RTLD_NEXT, #sym); \
-      dlsym_pop();                               \
-    }                                            \
+#define dlsym_load(sym)                        \
+  {                                            \
+    _##sym = (sym##_fn)dlsym(RTLD_NEXT, #sym); \
+    hard_assert(_##sym != NULL);               \
   }
 
-#define ensure_loaded_alloc(sym, sz)             \
-  {                                              \
-    if (unlikely(_##sym == NULL)) {              \
-      _init();                                   \
-      if (is_in_dlsym())                         \
-        return internal_alloc(sz);               \
-      dlsym_push();                              \
-      _##sym = (sym##_fn)dlsym(RTLD_NEXT, #sym); \
-      dlsym_pop();                               \
-    }                                            \
+#define ensure_loaded(sym)          \
+  {                                 \
+    if (unlikely(_##sym == NULL)) { \
+      _init();                      \
+    }                               \
+  }
+
+#define ensure_loaded_alloc(sym, sz) \
+  {                                  \
+    if (unlikely(_##sym == NULL)) {  \
+      if (unlikely(is_in_dlsym())) { \
+        return internal_alloc(sz);   \
+      }                              \
+      _init();                       \
+    }                                \
   }
 
 // mutex protecting debug and __latalloc_assert_fail to avoid concurrent
@@ -191,7 +194,7 @@ static FILE *_open(const char *prefix, const char *type) {
 
   memset(path, 0, path_len);
 
-  const int len = snprintf(path, path_len - 1, "%s.%s.csv", prefix, type);
+  const int len = snprintf(path, path_len - 1, "%s.%s.%d.csv", prefix, type, getpid());
 
   path[path_len - 1] = 0;
   if (len <= 0) {
@@ -298,7 +301,8 @@ static struct hdr_histogram *aligned_alloc_histogram =
 static struct hdr_histogram *malloc_usable_size_histogram =
     reinterpret_cast<struct hdr_histogram *>(&malloc_usable_size_histogram_buf);
 
-static inline void _init() {
+ATTRIBUTE_NEVER_INLINE
+static void _init() {
   if (likely(_LATALLOC_INITIALIZED))
     return;
 
@@ -325,6 +329,18 @@ static inline void _init() {
   hdr_init_preallocated(malloc_usable_size_histogram, &cfg);
   hard_assert(result == 0);
 
+  dlsym_push();
+  dlsym_load(malloc);
+  dlsym_load(free);
+  dlsym_load(cfree);
+  dlsym_load(calloc);
+  dlsym_load(realloc);
+  dlsym_load(memalign);
+  dlsym_load(posix_memalign);
+  dlsym_load(aligned_alloc);
+  dlsym_load(malloc_usable_size);
+  dlsym_pop();
+
   _LATALLOC_INITIALIZED = true;
 }
 
@@ -348,16 +364,14 @@ public:
 extern "C" {
 #endif
 
-LATALLOC_EXPORT
-void *malloc(size_t sz) {
+LATALLOC_EXPORT CACHELINE_ALIGNED void *malloc(size_t sz) {
   ensure_loaded_alloc(malloc, sz);
 
   time_call timer(malloc_histogram);
   return _malloc(sz);
 }
 
-LATALLOC_EXPORT
-void free(void *ptr) {
+LATALLOC_EXPORT CACHELINE_ALIGNED void free(void *ptr) {
   ensure_loaded(free);
   if (unlikely(is_internal_alloc(ptr)))
     return;
@@ -366,8 +380,7 @@ void free(void *ptr) {
   _free(ptr);
 }
 
-LATALLOC_EXPORT
-void cfree(void *ptr) {
+LATALLOC_EXPORT CACHELINE_ALIGNED void cfree(void *ptr) {
   ensure_loaded(cfree);
   if (unlikely(is_internal_alloc(ptr)))
     return;
@@ -376,16 +389,14 @@ void cfree(void *ptr) {
   _cfree(ptr);
 }
 
-LATALLOC_EXPORT
-void *calloc(size_t n, size_t sz) {
+LATALLOC_EXPORT CACHELINE_ALIGNED void *calloc(size_t n, size_t sz) {
   ensure_loaded_alloc(calloc, n * sz);
 
   time_call timer(calloc_histogram);
   return _calloc(n, sz);
 }
 
-LATALLOC_EXPORT
-void *realloc(void *ptr, size_t sz) {
+LATALLOC_EXPORT CACHELINE_ALIGNED void *realloc(void *ptr, size_t sz) {
   ensure_loaded(realloc);
   if (unlikely(is_internal_alloc(ptr)))
     return NULL;
@@ -394,32 +405,28 @@ void *realloc(void *ptr, size_t sz) {
   return _realloc(ptr, sz);
 }
 
-LATALLOC_EXPORT
-void *memalign(size_t alignment, size_t sz) {
+LATALLOC_EXPORT CACHELINE_ALIGNED void *memalign(size_t alignment, size_t sz) {
   ensure_loaded(memalign);
 
   time_call timer(memalign_histogram);
   return _memalign(alignment, sz);
 }
 
-LATALLOC_EXPORT
-int posix_memalign(void **ptr, size_t alignment, size_t sz) {
+LATALLOC_EXPORT CACHELINE_ALIGNED int posix_memalign(void **ptr, size_t alignment, size_t sz) {
   ensure_loaded(posix_memalign);
 
   time_call timer(posix_memalign_histogram);
   return _posix_memalign(ptr, alignment, sz);
 }
 
-LATALLOC_EXPORT
-void *aligned_alloc(size_t alignment, size_t sz) {
+LATALLOC_EXPORT CACHELINE_ALIGNED void *aligned_alloc(size_t alignment, size_t sz) {
   ensure_loaded(aligned_alloc);
 
   time_call timer(aligned_alloc_histogram);
   return _aligned_alloc(alignment, sz);
 }
 
-LATALLOC_EXPORT
-size_t malloc_usable_size(void *ptr) {
+LATALLOC_EXPORT CACHELINE_ALIGNED size_t malloc_usable_size(void *ptr) {
   ensure_loaded(malloc_usable_size);
 
   time_call timer(malloc_usable_size_histogram);
